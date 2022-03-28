@@ -17,6 +17,18 @@
         "@typescript-eslint"
     ],
     "rules": {
-        "no-var": "error"
+        "no-var": "error",
+        "no-unused-vars": "warn",
+        "no-unused-expressions": "off",
+        "comma-dangle": [
+            "error",
+            {
+                "arrays": "never",
+                "objects": "always",
+                "imports": "always",
+                "exports": "always",
+                "functions": "never"
+            }
+        ]
     }
 }
