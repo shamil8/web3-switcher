@@ -1,0 +1,20 @@
+{
+  "name": "common-parts",
+  "version": "1.0.0",
+  "main": "index.js",
+  "repository": "https://github.com/shamil8/common-parts.git",
+  "author": "Shamil Qurbonov <qurbonovshamil@gmail.com>",
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "lint": "eslint ./src",
+    "lint:fix": "eslint ./src --fix"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^5.16.0",
+    "@typescript-eslint/parser": "^5.16.0",
+    "eslint": "^8.12.0",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "typescript": "^4.6.3"
+  }
+}
