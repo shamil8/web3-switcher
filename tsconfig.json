@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "outDir": "dist",
+    "outDir": "lib",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "target": "es6",
@@ -27,7 +27,7 @@
   "exclude": [
     "tmp",
     "temp",
-    "dist",
+    "lib",
     "node_modules"
   ]
 }

@@ -4,7 +4,7 @@ import { EventData, } from 'web3-eth-contract';
 import { HttpProviderOptions, WebsocketProviderOptions, } from 'web3-core-helpers';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import { AbiItem, } from 'web3-utils';
-import { Server, } from 'hapi';
+import { Server, } from '@hapi/hapi';
 
 export interface IBlockTx {
   blockNumber: number,

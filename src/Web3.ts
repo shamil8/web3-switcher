@@ -1,5 +1,5 @@
 import WEB3 from 'web3';
-import { Server, } from 'hapi';
+import { Server, } from '@hapi/hapi';
 // eslint-disable-next-line import/no-extraneous-dependencies
 import {
   AbiItem, toHex, soliditySha3, Mixed,

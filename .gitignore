@@ -22,7 +22,6 @@ npm-debug.log
 .env
 
 # build directory
-dist/
 .idea/
 
 # lol macs
