@@ -35,6 +35,10 @@
         /*** Import rules */
         "import/no-unresolved": "off",
         "import/extensions": "off",
-        "import/prefer-default-export": "warn"
+        "import/prefer-default-export": "warn",
+        "no-return-await": "off",
+        "no-await-in-loop": "off",
+        "no-restricted-syntax": "off",
+        "consistent-return": "warn"
     }
 }
