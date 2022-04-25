@@ -2,7 +2,7 @@
   "name": "web3",
   "version": "1.0.0",
   "main": "index.js",
-  "repository": "https://github.com/shamil8/web4.git",
+  "repository": "https://github.com/shamil8/web3.git",
   "author": "Shamil Qurbonov <qurbonovshamil@gmail.com>",
   "license": "MIT",
   "scripts": {
