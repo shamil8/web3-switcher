@@ -16,7 +16,7 @@ import { NodeUrl, providerProtocol, } from './NodeUrl';
 import {
   IUserWeb3Config, IWeb3Config, IListenerParams, IParamsListener,
   IParseEventsLoopParams, IParseEventsParams, jobsCallbackType,
-  parseCallbackType, TAsyncFunction, UParams, BlockInfo,
+  parseCallbackType, TAsyncFunction, BlockInfo,
 } from './interfaces';
 
 // init default config
@@ -274,7 +274,7 @@ export class Web3 extends NodeUrl {
     return this.contracts[address];
   }
 
-  async sendContractMethod(address: string, method: string, ...params: UParams[]): Promise<any> {
+  async sendContractMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
       const transaction = await this.contracts[address].methods[method](...params);
 
@@ -301,7 +301,7 @@ export class Web3 extends NodeUrl {
     }
   }
 
-  async getContractViewMethod(address: string, method: string, ...params: UParams[]): Promise<any> {
+  async getContractViewMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
       return await this.promiseFunc(this.contracts[address].methods[method](...params).call);
     }
