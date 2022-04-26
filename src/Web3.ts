@@ -17,7 +17,7 @@ import {
 
 /** Init default config */
 const TIMED_FUNC_MSG_ERR = 'Time out';
-const DEFAULT_PROVIDER_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR'];
+const DEFAULT_PROVIDER_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR', 'Invalid JSON RPC response: ""'];
 
 const getConfig = ({
   envProvider,
