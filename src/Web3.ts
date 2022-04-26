@@ -1,16 +1,12 @@
 import WEB3 from 'web3';
 import { Server, } from '@hapi/hapi';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import {
   AbiItem, toHex, soliditySha3, Mixed,
 } from 'web3-utils';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { Sign, } from 'web3-core';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { BlockTransactionString, } from 'web3-eth';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { Contract, EventData, } from 'web3-eth-contract';
-import { ParserInfo, } from './models/ParserInfo';
+import { ParserInfo, } from './models';
 import { minutesToMilliSec, sleep, } from './utils';
 import { NodeUrl, providerProtocol, } from './NodeUrl';
 import {
@@ -19,9 +15,9 @@ import {
   parseCallbackType, TAsyncFunction, BlockInfo,
 } from './interfaces';
 
-// init default config
+/** Init default config */
 const TIMED_FUNC_MSG_ERR = 'Time out';
-const DEFAULT_PROVIDERS_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR'];
+const DEFAULT_PROVIDER_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR'];
 
 const getConfig = ({
   envProvider,
@@ -43,22 +39,22 @@ const getConfig = ({
       timeout: minutesToMilliSec(0.3),
     },
   },
-  EXTENDED_PROVIDERS_ERRORS = [],
-  WAITING_WEB3_RESPONSE = minutesToMilliSec(0.1),
-  WAITING_FAIL_RECONNECT = minutesToMilliSec(0.3),
-  MAX_RECONNECT_COUNT = 5,
-  WAITING_EVENT_PARSING = 200, // 0.2 secs
-  PARSE_LIMIT = 5000, // parsing limit count in many networks (probably 8k better use 6k)
+  extendProviderErrors = [],
+  waitingWeb3Response = minutesToMilliSec(0.1),
+  waitingFailReconnect = minutesToMilliSec(0.3),
+  waitingEventParsing = 200, // 0.2 secs
+  parseLimit = 5000, // parsing limit count in many networks (probably 8k better use 6k)
+  maxReconnectCount = 5,
 } : IUserWeb3Config = { envProvider: '', }): IWeb3Config => ({
   envProvider,
   providersOptions,
-  EXTENDED_PROVIDERS_ERRORS,
-  PROVIDERS_ERRORS: [...new Set([...EXTENDED_PROVIDERS_ERRORS, ...DEFAULT_PROVIDERS_ERRORS])],
-  WAITING_WEB3_RESPONSE,
-  WAITING_FAIL_RECONNECT,
-  WAITING_EVENT_PARSING,
-  PARSE_LIMIT,
-  MAX_RECONNECT_COUNT,
+  extendProviderErrors,
+  providerErrors: [...new Set([...extendProviderErrors, ...DEFAULT_PROVIDER_ERRORS])],
+  waitingWeb3Response,
+  waitingFailReconnect,
+  waitingEventParsing,
+  parseLimit,
+  maxReconnectCount,
 });
 
 export class Web3 extends NodeUrl {
@@ -121,8 +117,8 @@ export class Web3 extends NodeUrl {
 
   private async handleReconnect(): Promise<void | boolean> {
     if (this.abortReconnect) {
-      this.config.MAX_RECONNECT_COUNT -= 1;
-      this.config.MAX_RECONNECT_COUNT < 1 && await sleep(this.config.WAITING_FAIL_RECONNECT);
+      this.config.maxReconnectCount -= 1;
+      this.config.maxReconnectCount < 1 && await sleep(this.config.waitingFailReconnect);
 
       return;
     }
@@ -164,6 +160,7 @@ export class Web3 extends NodeUrl {
     }
   }
 
+  /** Get last block from blockchain */
   async getBlockNumber(): Promise<number> {
     try {
       return await this.promiseFunc(this.web3.eth.getBlockNumber);
@@ -171,16 +168,13 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error getBlockNumber in parseEvents, provider: ${this.getUrlProvider()}`, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.getBlockNumber();
-      }
+      await this.checkProviderError(e, this.getBlockNumber);
 
       throw new Error(e.message);
     }
   }
 
+  /** Get additional info from blockchain */
   async getBlockAdditionInfo(blockNumber: number): Promise<BlockTransactionString> {
     try {
       return await this.promiseFunc(this.web3.eth.getBlock, blockNumber);
@@ -188,16 +182,13 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error getBlockAdditionInfo in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.getBlockAdditionInfo(blockNumber);
-      }
+      await this.checkProviderError(e, this.getBlockAdditionInfo, blockNumber);
 
       throw new Error(e.message);
     }
   }
 
+  /** Get user balance */
   async getUserBalance(address: string, isWei = false): Promise<string> {
     try {
       const balance = await this.promiseFunc(this.web3.eth.getBalance, address);
@@ -207,11 +198,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error getUserBalance in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.getUserBalance(address, isWei);
-      }
+      await this.checkProviderError(e, this.getUserBalance, address, isWei);
 
       throw new Error(e.message);
     }
@@ -228,11 +215,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error getGasPrice in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.getGasPrice();
-      }
+      await this.checkProviderError(e, this.getGasPrice);
 
       throw new Error(e.message);
     }
@@ -291,11 +274,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error sendContractMethod ${method}, provider: ${this.getUrlProvider()} `, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.sendContractMethod(address, method, ...params);
-      }
+      await this.checkProviderError(e, this.sendContractMethod, address, method, ...params);
 
       throw new Error(e.message);
     }
@@ -308,11 +287,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error getContractMethod ${method}, provider: ${this.getUrlProvider()} `, e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return await this.getContractViewMethod(address, method, ...params);
-      }
+      await this.checkProviderError(e, this.getContractViewMethod, address, method, ...params);
 
       throw new Error(e.message);
     }
@@ -336,11 +311,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error('Error in subscribeAllEvents', e.message);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return this.subscribeAllEvents(address, parseCallback);
-      }
+      await this.checkProviderError(e, this.subscribeAllEvents, address, parseCallback);
 
       console.error('SubscribeAllEvents Cancelled');
     }
@@ -380,11 +351,7 @@ export class Web3 extends NodeUrl {
     catch (e) {
       console.error(`Error in getEvent, provider: ${this.getUrlProvider()}`, e);
 
-      if (this.config.PROVIDERS_ERRORS.some((err) => e.message.includes(err))) {
-        await this.handleReconnect();
-
-        return this.getEvent(address, event, options);
-      }
+      await this.checkProviderError(e, this.getEvent, address, event, options);
 
       throw new Error(e.message);
     }
@@ -395,12 +362,12 @@ export class Web3 extends NodeUrl {
     let { fromBlock, events, } = params;
     const provider = this.getUrlProvider();
     const latest = await this.getBlockNumber();
-    const { PARSE_LIMIT, } = this.config;
+    const { parseLimit, } = this.config;
 
     console.log(`parseEvents net: ${this.net}, address: ${address} lastBlockNumber:`, latest);
 
-    for (let toBlock = fromBlock + PARSE_LIMIT; toBlock <= latest + PARSE_LIMIT;
-      toBlock += PARSE_LIMIT) {
+    for (let toBlock = fromBlock + parseLimit; toBlock <= latest + parseLimit;
+      toBlock += parseLimit) {
       const options = {
         fromBlock,
         toBlock: toBlock <= latest ? toBlock : latest,
@@ -428,7 +395,7 @@ export class Web3 extends NodeUrl {
             }
           }
 
-          await sleep(this.config.WAITING_EVENT_PARSING);
+          await sleep(this.config.waitingEventParsing);
         }
 
         await ParserInfo.update(
@@ -486,14 +453,26 @@ export class Web3 extends NodeUrl {
   /**
    * Utils func
    * */
+  // eslint-disable-next-line consistent-return
+  private async checkProviderError(e: any, callFunc: TAsyncFunction<unknown, unknown>, ...params:
+      unknown[]): Promise<any> {
+    if (this.config.providerErrors.some((err) => e?.message.includes(err))) {
+      await this.handleReconnect();
+
+      return await callFunc(...params);
+    }
+  }
+
   async promiseFunc(callFunc: TAsyncFunction<any, any>, ...params: unknown[]): Promise<any> {
     return Promise.race([
       callFunc(...params),
       new Promise((resolve, reject) => {
         setTimeout(() => {
-          reject(new Error(`${TIMED_FUNC_MSG_ERR}! more than ${this.config.WAITING_WEB3_RESPONSE}`));
-        }, this.config.WAITING_WEB3_RESPONSE);
+          reject(new Error(`${TIMED_FUNC_MSG_ERR}! more than ${this.config.waitingWeb3Response}`));
+        }, this.config.waitingWeb3Response);
       })
     ]);
   }
 }
+
+export default Web3;

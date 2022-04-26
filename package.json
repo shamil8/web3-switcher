@@ -1,6 +1,6 @@
 {
   "name": "web3-switcher",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "main": "index.js",
   "repository": "git@github.com:shamil8/web3-switcher.git",
   "author": "shamil8 with zakinat",
@@ -26,6 +26,11 @@
     "reflect-metadata": "^0.1.13",
     "sequelize": "^6.19.0",
     "sequelize-typescript": "^2.1.3",
-    "web3": "^1.7.3"
+    "web3": "^1.7.3",
+    "web3-core": "^1.7.3",
+    "web3-core-helpers": "^1.7.3",
+    "web3-eth": "^1.7.3",
+    "web3-eth-contract": "^1.7.3",
+    "web3-utils": "^1.7.3"
   }
 }

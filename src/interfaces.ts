@@ -1,8 +1,5 @@
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { EventData, } from 'web3-eth-contract';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { HttpProviderOptions, WebsocketProviderOptions, } from 'web3-core-helpers';
-// eslint-disable-next-line import/no-extraneous-dependencies
 import { AbiItem, } from 'web3-utils';
 import { Server, } from '@hapi/hapi';
 
@@ -73,16 +70,16 @@ export interface IProviders {
 export interface IUserWeb3Config {
   envProvider: string,
   providersOptions?: IProviders,
-  EXTENDED_PROVIDERS_ERRORS? :string[],
-  WAITING_WEB3_RESPONSE?: number,
-  WAITING_FAIL_RECONNECT?: number,
-  WAITING_EVENT_PARSING?: number,
-  PARSE_LIMIT?: number,
-  MAX_RECONNECT_COUNT?: number,
+  extendProviderErrors?: string[],
+  waitingWeb3Response?: number,
+  waitingFailReconnect?: number,
+  waitingEventParsing?: number,
+  parseLimit?: number,
+  maxReconnectCount?: number,
 }
 
 export interface IWeb3Config extends Required<IUserWeb3Config> {
-  PROVIDERS_ERRORS:string[],
+  providerErrors: string[],
 }
 
 export type TAsyncFunction <A, O> = (...args: A[]) => Promise<O>;

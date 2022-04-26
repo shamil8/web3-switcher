@@ -1,4 +1,4 @@
-import { NodeProvider, } from './models/NodeProvider';
+import { NodeProvider, } from './models';
 
 export const providerProtocol = {
   wss: 'wss',

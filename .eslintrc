@@ -32,13 +32,13 @@
             }
         ],
         "brace-style": [2, "stroustrup", { "allowSingleLine": true }],
-        /*** Import rules */
-        "import/no-unresolved": "off",
-        "import/extensions": "off",
-        "import/prefer-default-export": "warn",
         "no-return-await": "off",
         "no-await-in-loop": "off",
         "no-restricted-syntax": "off",
-        "consistent-return": "warn"
+        "consistent-return": "warn",
+        /*** Import rules */
+        "import/no-unresolved": "off",
+        "import/extensions": "off",
+        "import/prefer-default-export": "warn"
     }
 }
