@@ -86,5 +86,3 @@ export interface IWeb3Config extends Required<IUserWeb3Config> {
 }
 
 export type TAsyncFunction <A, O> = (...args: A[]) => Promise<O>;
-
-export type UParams = number | string;
