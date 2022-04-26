@@ -166,11 +166,7 @@ export class Web3 extends NodeUrl {
       return await this.promiseFunc(this.web3.eth.getBlockNumber);
     }
     catch (e) {
-      console.error(`Error getBlockNumber in parseEvents, provider: ${this.getUrlProvider()}`, e.message);
-
-      await this.checkProviderError(e, this.getBlockNumber);
-
-      throw new Error(e.message);
+      return await this.checkProviderError(e.message, this.getBlockNumber.name);
     }
   }
 
@@ -180,11 +176,7 @@ export class Web3 extends NodeUrl {
       return await this.promiseFunc(this.web3.eth.getBlock, blockNumber);
     }
     catch (e) {
-      console.error(`Error getBlockAdditionInfo in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
-
-      await this.checkProviderError(e, this.getBlockAdditionInfo, blockNumber);
-
-      throw new Error(e.message);
+      return await this.checkProviderError(e.message, this.getBlockAdditionInfo.name, blockNumber);
     }
   }
 
@@ -196,11 +188,7 @@ export class Web3 extends NodeUrl {
       return isWei ? this.web3.utils.fromWei(balance) : balance;
     }
     catch (e) {
-      console.error(`Error getUserBalance in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
-
-      await this.checkProviderError(e, this.getUserBalance, address, isWei);
-
-      throw new Error(e.message);
+      return await this.checkProviderError(e.message, this.getUserBalance.name, address, isWei);
     }
   }
 
@@ -213,15 +201,11 @@ export class Web3 extends NodeUrl {
       return toHex(price);
     }
     catch (e) {
-      console.error(`Error getGasPrice in parseEvents, provider: ${this.getUrlProvider()} `, e.message);
-
-      await this.checkProviderError(e, this.getGasPrice);
-
-      throw new Error(e.message);
+      return await this.checkProviderError(e.message, this.getGasPrice.name);
     }
   }
 
-  createSignature = (data: Mixed[]): Sign => {
+  createSignature(data: Mixed[]): Sign {
     if (!this.walletKey) {
       throw new Error('You need to add wallet key!');
     }
@@ -233,15 +217,14 @@ export class Web3 extends NodeUrl {
     }
 
     return this.web3.eth.accounts.sign(solSha, this.walletKey);
-  };
+  }
 
   recover(messageHash: string, signature: string): string {
     try {
       return this.web3.eth.accounts.recover(messageHash, signature).toLowerCase();
     }
     catch (e) {
-      console.log('Recover', e);
-      throw e;
+      throw Error(e.message);
     }
   }
 
@@ -265,18 +248,13 @@ export class Web3 extends NodeUrl {
 
       const gas = await transaction.estimateGas({ from, });
 
-      console.log('gasLimit in startSalesRound', gas);
-
       const txInfo = await this.promiseFunc(transaction.send, { from, gas, });
 
       return txInfo.transactionHash;
     }
     catch (e) {
-      console.error(`Error sendContractMethod ${method}, provider: ${this.getUrlProvider()} `, e.message);
-
-      await this.checkProviderError(e, this.sendContractMethod, address, method, ...params);
-
-      throw new Error(e.message);
+      return await this
+        .checkProviderError(e.message, this.sendContractMethod.name, address, method, ...params);
     }
   }
 
@@ -285,11 +263,8 @@ export class Web3 extends NodeUrl {
       return await this.promiseFunc(this.contracts[address].methods[method](...params).call);
     }
     catch (e) {
-      console.error(`Error getContractMethod ${method}, provider: ${this.getUrlProvider()} `, e.message);
-
-      await this.checkProviderError(e, this.getContractViewMethod, address, method, ...params);
-
-      throw new Error(e.message);
+      return await this
+        .checkProviderError(e.message, this.getContractViewMethod.name, address, method, ...params);
     }
   }
 
@@ -297,23 +272,15 @@ export class Web3 extends NodeUrl {
    * Web3 listeners and subscribers
    */
 
-  async subscribeAllEvents(address: string, parseCallback: parseCallbackType): Promise<void> {
+  async subscribeAllEvents(address: string, parseCall: parseCallbackType): Promise<void> {
     try {
       const fromBlock = await this.getBlockNumber();
 
-      this.contracts[address].events.allEvents({ fromBlock, })
-        .on('data', parseCallback); // TODO:: CHECK IT!!!
-      // .on('error', (err) => {
-      //   console.error('eventError in subscribeAllEvents', err);
-      //   this.subscribeAllEvents(params);
-      // });
+      this.contracts[address].events.allEvents({ fromBlock, }).on('data', parseCall);
     }
     catch (e) {
-      console.error('Error in subscribeAllEvents', e.message);
-
-      await this.checkProviderError(e, this.subscribeAllEvents, address, parseCallback);
-
-      console.error('SubscribeAllEvents Cancelled');
+      return await this
+        .checkProviderError(e.message, this.subscribeAllEvents.name, address, parseCall);
     }
   }
 
@@ -349,11 +316,7 @@ export class Web3 extends NodeUrl {
       return await this.contracts[address].getPastEvents(event, options);
     }
     catch (e) {
-      console.error(`Error in getEvent, provider: ${this.getUrlProvider()}`, e);
-
-      await this.checkProviderError(e, this.getEvent, address, event, options);
-
-      throw new Error(e.message);
+      return await this.checkProviderError(e.message, this.getEvent.name, address, event, options);
     }
   }
 
@@ -391,7 +354,7 @@ export class Web3 extends NodeUrl {
               await params.parseCallback(item, provider.includes(providerProtocol.https));
             }
             catch (e) {
-              console.log(`Error in jobs, Contract ${address} ${this.net} for the event`, item, 'with the Error', e);
+              console.error(`Error in jobs, contract: ${address} ${this.net} for the event`, item, 'with the Error', e);
             }
           }
 
@@ -404,7 +367,7 @@ export class Web3 extends NodeUrl {
         );
       }
       catch (e) {
-        console.error(`Error in parseEvents, , provider: ${provider}`, e);
+        console.error(`Error in parseEvents, net: ${this.net}, provider: ${provider}`, e);
       }
 
       fromBlock = toBlock;
@@ -446,21 +409,26 @@ export class Web3 extends NodeUrl {
       });
     }
     catch (e) {
-      console.log(`Failed to listen for the contract  ${address}_${this.net}`);
+      console.error(`Failed to listen for the contract  ${address}_${this.net}`);
     }
   }
 
   /**
    * Utils func
    * */
-  // eslint-disable-next-line consistent-return
-  private async checkProviderError(e: any, callFunc: TAsyncFunction<unknown, unknown>, ...params:
-      unknown[]): Promise<any> {
-    if (this.config.providerErrors.some((err) => e?.message.includes(err))) {
+  private async checkProviderError(msg: string, funcName: string, ...params: unknown[])
+      : Promise<any> {
+    console.error(`Error in ${funcName}, net: ${this.net}, provider: ${this.getUrlProvider()}, params`, params, msg);
+
+    if (this.config.providerErrors.some((err) => msg.includes(err))) {
       await this.handleReconnect();
 
-      return await callFunc(...params);
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      return await this[funcName](...params);
     }
+
+    throw new Error(msg);
   }
 
   async promiseFunc(callFunc: TAsyncFunction<any, any>, ...params: unknown[]): Promise<any> {
