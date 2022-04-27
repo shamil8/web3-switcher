@@ -5,7 +5,7 @@ export const providerProtocol = {
   https: 'https',
 };
 
-export class NodeUrl {
+class NodeUrl {
   private frozenProviders: NodeProvider[];
 
   private mutateProvider: NodeProvider | null;
@@ -95,3 +95,5 @@ export class NodeUrl {
     this.frozenProviders = [];
   }
 }
+
+export default NodeUrl;

@@ -8,11 +8,11 @@ import { BlockTransactionString, } from 'web3-eth';
 import { Contract, EventData, } from 'web3-eth-contract';
 import { ParserInfo, } from './models';
 import { minutesToMilliSec, sleep, } from './utils';
-import { NodeUrl, providerProtocol, } from './NodeUrl';
+import NodeUrl, { providerProtocol, } from './NodeUrl';
 import {
-  IUserWeb3Config, IWeb3Config, IListenerParams, IParamsListener,
-  IParseEventsLoopParams, IParseEventsParams, jobsCallbackType,
-  parseCallbackType, TAsyncFunction, BlockInfo,
+  IUserWeb3Config, IWeb3Config, IListenerParams,
+  IParamsListener, IParseEventsLoopParams, IParseEventsParams,
+  jobsCallbackType, TAsyncFunction, BlockInfo, parseCallbackType,
 } from './interfaces';
 
 /** Init default config */
@@ -45,6 +45,10 @@ const getConfig = ({
   waitingEventParsing = 200, // 0.2 secs
   parseLimit = 5000, // parsing limit count in many networks (probably 8k better use 6k)
   maxReconnectCount = 5,
+  parseEventsIntervalMs = {
+    wss: minutesToMilliSec(60),
+    http: minutesToMilliSec(1 / 12),
+  },
 } : IUserWeb3Config = { envProvider: '', }): IWeb3Config => ({
   envProvider,
   providersOptions,
@@ -55,18 +59,31 @@ const getConfig = ({
   waitingEventParsing,
   parseLimit,
   maxReconnectCount,
+  parseEventsIntervalMs,
 });
 
-export class Web3 extends NodeUrl {
+class Web3 extends NodeUrl {
   config: IWeb3Config;
 
-  protected web3: WEB3;
+  static readonly utils = WEB3.utils;
+
+  static readonly web3Version = WEB3.version;
+
+  static modules = WEB3.modules;
 
   private readonly walletKey?: string;
 
+  protected web3: WEB3;
+
   protected contracts: {[address: string]: Contract, };
 
+  protected eventDataContracts: {[address: string]: parseCallbackType, };
+
+  protected subscribedContracts: {[address: string]: boolean, };
+
   protected abortReconnect: boolean;
+
+  protected hasHttp: boolean;
 
   constructor(net: string, config: IUserWeb3Config, walletKey?: string) {
     super(net);
@@ -76,8 +93,13 @@ export class Web3 extends NodeUrl {
     }
 
     this.config = getConfig(config);
+
     this.contracts = {};
+    this.eventDataContracts = {};
+    this.subscribedContracts = {};
+
     this.walletKey = walletKey;
+
     this.initWeb3(config.envProvider);
   }
 
@@ -85,7 +107,9 @@ export class Web3 extends NodeUrl {
    * Handle provider (Init web3)
    */
   protected getProvider(url: string) {
-    return url.includes(providerProtocol.https)
+    this.hasHttp = url.includes(providerProtocol.https);
+
+    return this.hasHttp
       ? new WEB3.providers.HttpProvider(url, this.config.providersOptions.http)
       : new WEB3.providers.WebsocketProvider(url, this.config.providersOptions.wss);
   }
@@ -132,6 +156,12 @@ export class Web3 extends NodeUrl {
     }
 
     this.setProvider(provider);
+
+    if (!this.hasHttp) {
+      for (const [address, isSub] of Object.entries(this.subscribedContracts)) {
+        !isSub && await this.subscribeAllEvents(address);
+      }
+    }
   }
 
   /** Update provider from rout */
@@ -234,6 +264,8 @@ export class Web3 extends NodeUrl {
 
   getContract(Abi: AbiItem[], address: string): Contract {
     if (!this.contracts[address]) {
+      this.subscribedContracts[address] = false;
+
       this.contracts[address] = new this.web3.eth.Contract(Abi, address);
     }
 
@@ -272,25 +304,42 @@ export class Web3 extends NodeUrl {
    * Web3 listeners and subscribers
    */
 
-  async subscribeAllEvents(address: string, parseCall: parseCallbackType): Promise<void> {
+  private async subscribeAllEvents(address: string): Promise<void> {
     try {
+      if (this.hasHttp || this.subscribedContracts[address]) {
+        return;
+      }
+
       const fromBlock = await this.getBlockNumber();
 
-      this.contracts[address].events.allEvents({ fromBlock, }).on('data', parseCall);
+      this.contracts[address].events.allEvents({ fromBlock, })
+        .on('data', this.eventDataContracts[address])
+        .on('error', (error: unknown) => {
+          console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents Cancelled in Contract ${address}_${this.net}`);
+
+          this.subscribedContracts[address] = false;
+
+          throw error;
+        });
+
+      this.subscribedContracts[address] = true;
+
+      console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents successfully in Contract ${address}_${this.net}`);
     }
     catch (e) {
       return await this
-        .checkProviderError(e.message, this.subscribeAllEvents.name, address, parseCall);
+        .checkProviderError(e.message, this.subscribeAllEvents.name, address);
     }
   }
 
   private async parseEventsLoop(params: IParseEventsLoopParams): Promise<void> {
     const {
-      intervalMs, address, firstContractBlock, parseCallback, events,
+      address, firstContractBlock, events,
     } = params;
 
     try {
-      while (intervalMs) { // Parsing events
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
         const [parseInfo] = await ParserInfo.findOrCreate({
           where: { network: this.net, address, }, defaults: { lastBlock: firstContractBlock, },
         });
@@ -299,11 +348,10 @@ export class Web3 extends NodeUrl {
         await this.parseEvents({
           address,
           fromBlock,
-          parseCallback, // callback function
           events,
         });
 
-        await sleep(intervalMs);
+        await this.sleepParseEventsLoop();
       }
     }
     catch (e) {
@@ -351,7 +399,7 @@ export class Web3 extends NodeUrl {
           for (const item of items) {
             // isWS = false meant doesn't need to send socket event!
             try {
-              await params.parseCallback(item, provider.includes(providerProtocol.https));
+              await this.eventDataContracts[address](item, provider.includes(providerProtocol.https));
             }
             catch (e) {
               console.error(`Error in jobs, contract: ${address} ${this.net} for the event`, item, 'with the Error', e);
@@ -375,20 +423,19 @@ export class Web3 extends NodeUrl {
   }
 
   private async subscribe(jobsCallback: jobsCallbackType, params: IListenerParams): Promise<void> {
-    const hasHttp = this.getUrlProvider().includes(providerProtocol.https);
-
-    const eventData = async (data: any, isWs = true) => await jobsCallback({
+    this.eventDataContracts[params.address] = async (data: any, isWs = true) => await jobsCallback({
       ...params, data, isWs, net: this.net,
     });
 
+    const hasHttp = this.getUrlProvider().includes(providerProtocol.https);
+
     if (!hasHttp) {
-      await this.subscribeAllEvents(params.address, eventData);
+      await this.subscribeAllEvents(params.address);
     }
 
     this.parseEventsLoop({
-      parseCallback: eventData, // (5s or one hour) zero or null can not parsing anything!
+      hasHttp,
       address: params.address,
-      intervalMs: minutesToMilliSec(hasHttp ? 1 / 12 : 60),
       firstContractBlock: params.firstContractBlock,
       events: params.contractEvents,
     });
@@ -396,10 +443,9 @@ export class Web3 extends NodeUrl {
 
   async listener(server: Server, p: IParamsListener): Promise<void> {
     const address = p.contractData.address.toLowerCase();
+    this.getContract(p.abi, address);
 
     try {
-      this.getContract(p.abi, address);
-
       await this.subscribe(p.jobs, {
         server,
         address,
@@ -440,6 +486,19 @@ export class Web3 extends NodeUrl {
         }, this.config.waitingWeb3Response);
       })
     ]);
+  }
+
+  async sleepParseEventsLoop() : Promise<void> {
+    const maxInterval = Math.max(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
+    const minInterval = Math.min(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
+    const sleepCount = Math.floor(maxInterval / minInterval);
+
+    for (let i = 0; i < sleepCount; i += 1) {
+      await sleep(minInterval);
+      if (this.hasHttp) {
+        break;
+      }
+    }
   }
 }
 
