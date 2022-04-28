@@ -62,6 +62,12 @@ export class Web3 extends NodeUrl {
 
   protected web3: WEB3;
 
+  static readonly utils = WEB3.utils;
+
+  static readonly web3Version = WEB3.version;
+
+  static modules = WEB3.modules;
+
   private readonly walletKey?: string;
 
   protected contracts: {[address: string]: Contract, };
