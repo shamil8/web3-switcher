@@ -431,7 +431,7 @@ export class Web3 extends NodeUrl {
   }
 
   private async subscribe(jobsCallback: jobsCallbackType, params: IListenerParams): Promise<void> {
-    this.eventDataContracts.set(params.address, async (data: any, isWs = true) => await jobsCallback({
+    this.eventDataContracts.set(params.address, async (data: any, isWs = !this.hasHttp) => await jobsCallback({
       ...params, data, isWs, net: this.net,
     }));
 
