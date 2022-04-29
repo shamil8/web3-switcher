@@ -43,13 +43,12 @@ export interface IParamsListener extends IBaseListener {
 
 export interface IParseEventsCore {
   address: string,
-  parseCallback: parseCallbackType,
   events?: string[],
 }
 
 export interface IParseEventsLoopParams extends IParseEventsCore {
   firstContractBlock: number,
-  intervalMs: number | null,
+  hasHttp: boolean,
 }
 
 export interface BlockInfo {
@@ -66,9 +65,14 @@ export interface IProviders {
   wss?: WebsocketProviderOptions,
   http?: HttpProviderOptions,
 }
+export interface parseEventsIntervalMs {
+  http?: number,
+  wss?: number,
+}
 
 export interface IUserWeb3Config {
   envProvider: string,
+  parseEventsIntervalMs?: parseEventsIntervalMs,
   providersOptions?: IProviders,
   extendProviderErrors?: string[],
   waitingWeb3Response?: number,

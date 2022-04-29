@@ -8,16 +8,16 @@ import { BlockTransactionString, } from 'web3-eth';
 import { Contract, EventData, } from 'web3-eth-contract';
 import { ParserInfo, } from './models';
 import { minutesToMilliSec, sleep, } from './utils';
-import { NodeUrl, providerProtocol, } from './NodeUrl';
+import NodeUrl, { providerProtocol, } from './NodeUrl';
 import {
-  IUserWeb3Config, IWeb3Config, IListenerParams, IParamsListener,
-  IParseEventsLoopParams, IParseEventsParams, jobsCallbackType,
-  parseCallbackType, TAsyncFunction, BlockInfo,
+  IUserWeb3Config, IWeb3Config, IListenerParams,
+  IParamsListener, IParseEventsLoopParams, IParseEventsParams,
+  jobsCallbackType, TAsyncFunction, BlockInfo, parseCallbackType,
 } from './interfaces';
 
 /** Init default config */
 const TIMED_FUNC_MSG_ERR = 'Time out';
-const DEFAULT_PROVIDER_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR', 'Invalid JSON RPC response: ""'];
+const DEFAULT_PROVIDER_ERRORS = [TIMED_FUNC_MSG_ERR, 'CONNECTION ERROR', 'Invalid JSON RPC response: ""', 'block range can not exceed'];
 
 const getConfig = ({
   envProvider,
@@ -45,6 +45,10 @@ const getConfig = ({
   waitingEventParsing = 200, // 0.2 secs
   parseLimit = 5000, // parsing limit count in many networks (probably 8k better use 6k)
   maxReconnectCount = 5,
+  parseEventsIntervalMs = {
+    wss: minutesToMilliSec(60),
+    http: minutesToMilliSec(1 / 12),
+  },
 } : IUserWeb3Config = { envProvider: '', }): IWeb3Config => ({
   envProvider,
   providersOptions,
@@ -55,12 +59,21 @@ const getConfig = ({
   waitingEventParsing,
   parseLimit,
   maxReconnectCount,
+  parseEventsIntervalMs,
 });
+
+interface IMap<K, V> extends Map<K, V> {
+  get(key: K): V;
+}
 
 export class Web3 extends NodeUrl {
   config: IWeb3Config;
 
-  protected web3: WEB3;
+  static readonly utils = WEB3.utils;
+
+  static readonly web3Version = WEB3.version;
+
+  static modules = WEB3.modules;
 
   static readonly utils = WEB3.utils;
 
@@ -70,9 +83,21 @@ export class Web3 extends NodeUrl {
 
   private readonly walletKey?: string;
 
-  protected contracts: {[address: string]: Contract, };
+  protected web3: WEB3;
+
+  protected contracts: IMap<string, Contract>;
+
+  protected eventDataContracts: IMap<string, parseCallbackType>;
+
+  protected timeoutIDParseEventLop: IMap<string, NodeJS.Timeout>;
+
+  protected subscribedContracts: {[address: string]: boolean, };
 
   protected abortReconnect: boolean;
+
+  protected lastProviderHasHttp: boolean;
+
+  protected hasHttp: boolean;
 
   constructor(net: string, config: IUserWeb3Config, walletKey?: string) {
     super(net);
@@ -82,8 +107,14 @@ export class Web3 extends NodeUrl {
     }
 
     this.config = getConfig(config);
-    this.contracts = {};
+
+    this.contracts = new Map();
+    this.eventDataContracts = new Map();
+    this.timeoutIDParseEventLop = new Map();
+    this.subscribedContracts = {};
+
     this.walletKey = walletKey;
+
     this.initWeb3(config.envProvider);
   }
 
@@ -91,7 +122,9 @@ export class Web3 extends NodeUrl {
    * Handle provider (Init web3)
    */
   protected getProvider(url: string) {
-    return url.includes(providerProtocol.https)
+    this.hasHttp = url.includes(providerProtocol.https);
+
+    return this.hasHttp
       ? new WEB3.providers.HttpProvider(url, this.config.providersOptions.http)
       : new WEB3.providers.WebsocketProvider(url, this.config.providersOptions.wss);
   }
@@ -112,16 +145,18 @@ export class Web3 extends NodeUrl {
     const providerWS = this.getProvider(provider);
     this.web3.setProvider(providerWS);
 
-    for (const address of Object.keys(this.contracts)) {
+    for (const address of this.contracts.keys()) {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
-      this.contracts[address] && this.contracts[address].setProvider(providerWS);
+      this.contracts.has(address) && this.contracts.get(address).setProvider(providerWS);
     }
 
     console.log('\x1b[32m%s\x1b[0m', `Changed provider, net: ${this.net}, provider:`, provider);
   }
 
   private async handleReconnect(): Promise<void | boolean> {
+    this.lastProviderHasHttp = this.getUrlProvider().includes(providerProtocol.https);
+
     if (this.abortReconnect) {
       this.config.maxReconnectCount -= 1;
       this.config.maxReconnectCount < 1 && await sleep(this.config.waitingFailReconnect);
@@ -138,6 +173,19 @@ export class Web3 extends NodeUrl {
     }
 
     this.setProvider(provider);
+
+    if (this.hasHttp !== this.lastProviderHasHttp) {
+      for (const [key, value] of this.timeoutIDParseEventLop) {
+        clearTimeout(value);
+        this.timeoutIDParseEventLop.delete(key);
+      }
+    }
+
+    if (!this.hasHttp) {
+      for (const [address, isSub] of Object.entries(this.subscribedContracts)) {
+        !isSub && await this.subscribeAllEvents(address);
+      }
+    }
   }
 
   /** Update provider from rout */
@@ -238,17 +286,17 @@ export class Web3 extends NodeUrl {
    * Contract methods
    */
 
-  getContract(Abi: AbiItem[], address: string): Contract {
-    if (!this.contracts[address]) {
-      this.contracts[address] = new this.web3.eth.Contract(Abi, address);
+  getContract(Abi: AbiItem[], address: string): Contract | undefined {
+    if (!this.contracts.has(address)) {
+      this.contracts.set(address, new this.web3.eth.Contract(Abi, address));
     }
 
-    return this.contracts[address];
+    return this.contracts.get(address);
   }
 
   async sendContractMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
-      const transaction = await this.contracts[address].methods[method](...params);
+      const transaction = await this.contracts.get(address).methods[method](...params);
 
       const from = this.getAccountAddress();
 
@@ -266,7 +314,7 @@ export class Web3 extends NodeUrl {
 
   async getContractViewMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
-      return await this.promiseFunc(this.contracts[address].methods[method](...params).call);
+      return await this.promiseFunc(this.contracts.get(address).methods[method](...params).call);
     }
     catch (e) {
       return await this
@@ -278,25 +326,34 @@ export class Web3 extends NodeUrl {
    * Web3 listeners and subscribers
    */
 
-  async subscribeAllEvents(address: string, parseCall: parseCallbackType): Promise<void> {
+  private async subscribeAllEvents(address: string): Promise<void> {
+    if (this.hasHttp || this.subscribedContracts[address]) {
+      return;
+    }
+
     try {
       const fromBlock = await this.getBlockNumber();
 
-      this.contracts[address].events.allEvents({ fromBlock, }).on('data', parseCall);
+      this.contracts.get(address).events.allEvents({ fromBlock, })
+        .on('data', this.eventDataContracts.get(address));
+
+      this.subscribedContracts[address] = true;
+
+      console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents successfully in Contract ${address}_${this.net}`);
     }
     catch (e) {
-      return await this
-        .checkProviderError(e.message, this.subscribeAllEvents.name, address, parseCall);
+      this.subscribedContracts[address] = false;
+
+      return await this.checkProviderError(e.message, this.subscribeAllEvents.name, address);
     }
   }
 
   private async parseEventsLoop(params: IParseEventsLoopParams): Promise<void> {
-    const {
-      intervalMs, address, firstContractBlock, parseCallback, events,
-    } = params;
+    const { address, firstContractBlock, events, } = params;
 
     try {
-      while (intervalMs) { // Parsing events
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
         const [parseInfo] = await ParserInfo.findOrCreate({
           where: { network: this.net, address, }, defaults: { lastBlock: firstContractBlock, },
         });
@@ -305,11 +362,10 @@ export class Web3 extends NodeUrl {
         await this.parseEvents({
           address,
           fromBlock,
-          parseCallback, // callback function
           events,
         });
 
-        await sleep(intervalMs);
+        await this.sleepParseEvent(address);
       }
     }
     catch (e) {
@@ -319,7 +375,7 @@ export class Web3 extends NodeUrl {
 
   private async getEvent(address: string, event: string, options: BlockInfo): Promise<EventData[]> {
     try {
-      return await this.contracts[address].getPastEvents(event, options);
+      return await this.contracts.get(address).getPastEvents(event, options);
     }
     catch (e) {
       return await this.checkProviderError(e.message, this.getEvent.name, address, event, options);
@@ -357,7 +413,7 @@ export class Web3 extends NodeUrl {
           for (const item of items) {
             // isWS = false meant doesn't need to send socket event!
             try {
-              await params.parseCallback(item, provider.includes(providerProtocol.https));
+              await this.eventDataContracts.get(address)(item, provider.includes(providerProtocol.https));
             }
             catch (e) {
               console.error(`Error in jobs, contract: ${address} ${this.net} for the event`, item, 'with the Error', e);
@@ -381,20 +437,21 @@ export class Web3 extends NodeUrl {
   }
 
   private async subscribe(jobsCallback: jobsCallbackType, params: IListenerParams): Promise<void> {
+    this.eventDataContracts.set(params.address, async (data: any, isWs = !this.hasHttp) => await jobsCallback({
+      ...params, data, isWs, net: this.net,
+    }));
+
+    this.subscribedContracts[params.address] = false;
+
     const hasHttp = this.getUrlProvider().includes(providerProtocol.https);
 
-    const eventData = async (data: any, isWs = true) => await jobsCallback({
-      ...params, data, isWs, net: this.net,
-    });
-
     if (!hasHttp) {
-      await this.subscribeAllEvents(params.address, eventData);
+      await this.subscribeAllEvents(params.address);
     }
 
     this.parseEventsLoop({
-      parseCallback: eventData, // (5s or one hour) zero or null can not parsing anything!
+      hasHttp,
       address: params.address,
-      intervalMs: minutesToMilliSec(hasHttp ? 1 / 12 : 60),
       firstContractBlock: params.firstContractBlock,
       events: params.contractEvents,
     });
@@ -402,10 +459,9 @@ export class Web3 extends NodeUrl {
 
   async listener(server: Server, p: IParamsListener): Promise<void> {
     const address = p.contractData.address.toLowerCase();
+    this.getContract(p.abi, address);
 
     try {
-      this.getContract(p.abi, address);
-
       await this.subscribe(p.jobs, {
         server,
         address,
@@ -447,6 +503,13 @@ export class Web3 extends NodeUrl {
       })
     ]);
   }
+
+  // eslint-disable-next-line class-methods-use-this
+  sleepParseEvent = (address: string)
+      : Promise<void> => new Promise((res) => {
+    const timeID = setTimeout(res, this.hasHttp ? this.config.parseEventsIntervalMs.http : this.config.parseEventsIntervalMs.wss);
+    this.timeoutIDParseEventLop.set(address, timeID);
+  });
 }
 
 export default Web3;
