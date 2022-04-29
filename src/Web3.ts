@@ -62,7 +62,11 @@ const getConfig = ({
   parseEventsIntervalMs,
 });
 
-class Web3 extends NodeUrl {
+interface IMap<K, V> extends Map<K, V> {
+  get(key: K): V;
+}
+
+export class Web3 extends NodeUrl {
   config: IWeb3Config;
 
   static readonly utils = WEB3.utils;
@@ -75,13 +79,17 @@ class Web3 extends NodeUrl {
 
   protected web3: WEB3;
 
-  protected contracts: {[address: string]: Contract, };
+  protected contracts: IMap<string, Contract>;
 
-  protected eventDataContracts: {[address: string]: parseCallbackType, };
+  protected eventDataContracts: IMap<string, parseCallbackType>;
+
+  protected timeoutIDParseEventLop: IMap<string, NodeJS.Timeout>;
 
   protected subscribedContracts: {[address: string]: boolean, };
 
   protected abortReconnect: boolean;
+
+  protected lastProviderHasHttp: boolean;
 
   protected hasHttp: boolean;
 
@@ -94,8 +102,8 @@ class Web3 extends NodeUrl {
 
     this.config = getConfig(config);
 
-    this.contracts = {};
-    this.eventDataContracts = {};
+    this.contracts = new Map();
+    this.eventDataContracts = new Map();
     this.subscribedContracts = {};
 
     this.walletKey = walletKey;
@@ -130,16 +138,18 @@ class Web3 extends NodeUrl {
     const providerWS = this.getProvider(provider);
     this.web3.setProvider(providerWS);
 
-    for (const address of Object.keys(this.contracts)) {
+    for (const address of this.contracts.keys()) {
       // eslint-disable-next-line @typescript-eslint/ban-ts-comment
       // @ts-ignore
-      this.contracts[address] && this.contracts[address].setProvider(providerWS);
+      this.contracts.has(address) && this.contracts.get(address).setProvider(providerWS);
     }
 
     console.log('\x1b[32m%s\x1b[0m', `Changed provider, net: ${this.net}, provider:`, provider);
   }
 
   private async handleReconnect(): Promise<void | boolean> {
+    this.lastProviderHasHttp = this.getUrlProvider().includes(providerProtocol.https);
+
     if (this.abortReconnect) {
       this.config.maxReconnectCount -= 1;
       this.config.maxReconnectCount < 1 && await sleep(this.config.waitingFailReconnect);
@@ -156,6 +166,13 @@ class Web3 extends NodeUrl {
     }
 
     this.setProvider(provider);
+
+    if (this.hasHttp !== this.lastProviderHasHttp) {
+      for (const [key, value] of this.timeoutIDParseEventLop) {
+        clearTimeout(value);
+        this.timeoutIDParseEventLop.delete(key);
+      }
+    }
 
     if (!this.hasHttp) {
       for (const [address, isSub] of Object.entries(this.subscribedContracts)) {
@@ -262,17 +279,17 @@ class Web3 extends NodeUrl {
    * Contract methods
    */
 
-  getContract(Abi: AbiItem[], address: string): Contract {
-    if (!this.contracts[address]) {
-      this.contracts[address] = new this.web3.eth.Contract(Abi, address);
+  getContract(Abi: AbiItem[], address: string): Contract | undefined {
+    if (!this.contracts.has(address)) {
+      this.contracts.set(address, new this.web3.eth.Contract(Abi, address));
     }
 
-    return this.contracts[address];
+    return this.contracts.get(address);
   }
 
   async sendContractMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
-      const transaction = await this.contracts[address].methods[method](...params);
+      const transaction = await this.contracts.get(address).methods[method](...params);
 
       const from = this.getAccountAddress();
 
@@ -290,7 +307,7 @@ class Web3 extends NodeUrl {
 
   async getContractViewMethod(address: string, method: string, ...params: any[]): Promise<any> {
     try {
-      return await this.promiseFunc(this.contracts[address].methods[method](...params).call);
+      return await this.promiseFunc(this.contracts.get(address).methods[method](...params).call);
     }
     catch (e) {
       return await this
@@ -310,8 +327,8 @@ class Web3 extends NodeUrl {
     try {
       const fromBlock = await this.getBlockNumber();
 
-      this.contracts[address].events.allEvents({ fromBlock, })
-        .on('data', this.eventDataContracts[address]);
+      this.contracts.get(address).events.allEvents({ fromBlock, })
+        .on('data', this.eventDataContracts.get(address));
 
       this.subscribedContracts[address] = true;
 
@@ -341,7 +358,7 @@ class Web3 extends NodeUrl {
           events,
         });
 
-        await this.sleepParseEventsLoop();
+        await this.sleepParseEvent(address);
       }
     }
     catch (e) {
@@ -351,7 +368,7 @@ class Web3 extends NodeUrl {
 
   private async getEvent(address: string, event: string, options: BlockInfo): Promise<EventData[]> {
     try {
-      return await this.contracts[address].getPastEvents(event, options);
+      return await this.contracts.get(address).getPastEvents(event, options);
     }
     catch (e) {
       return await this.checkProviderError(e.message, this.getEvent.name, address, event, options);
@@ -389,7 +406,7 @@ class Web3 extends NodeUrl {
           for (const item of items) {
             // isWS = false meant doesn't need to send socket event!
             try {
-              await this.eventDataContracts[address](item, provider.includes(providerProtocol.https));
+              await this.eventDataContracts.get(address)(item, provider.includes(providerProtocol.https));
             }
             catch (e) {
               console.error(`Error in jobs, contract: ${address} ${this.net} for the event`, item, 'with the Error', e);
@@ -413,9 +430,9 @@ class Web3 extends NodeUrl {
   }
 
   private async subscribe(jobsCallback: jobsCallbackType, params: IListenerParams): Promise<void> {
-    this.eventDataContracts[params.address] = async (data: any, isWs = true) => await jobsCallback({
+    this.eventDataContracts.set(params.address, async (data: any, isWs = true) => await jobsCallback({
       ...params, data, isWs, net: this.net,
-    });
+    }));
 
     this.subscribedContracts[params.address] = false;
 
@@ -480,19 +497,12 @@ class Web3 extends NodeUrl {
     ]);
   }
 
-  async sleepParseEventsLoop() : Promise<void> { // TODO:: FIX THIs with clearTimeout (Event loop) @ZAKI!
-    const maxInterval = Math.max(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
-    const minInterval = Math.min(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
-    const sleepCount = Math.floor(maxInterval / minInterval);
-
-    for (let i = 0; i < sleepCount; i += 1) {
-      await sleep(minInterval);
-
-      if (this.hasHttp) {
-        break;
-      }
-    }
-  }
+  // eslint-disable-next-line class-methods-use-this
+  sleepParseEvent = (address: string)
+      : Promise<void> => new Promise((res) => {
+    const timeID = setTimeout(res, this.hasHttp ? this.config.parseEventsIntervalMs.http : this.config.parseEventsIntervalMs.wss);
+    this.timeoutIDParseEventLop.set(address, timeID);
+  });
 }
 
 export default Web3;
