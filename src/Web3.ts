@@ -75,12 +75,6 @@ export class Web3 extends NodeUrl {
 
   static modules = WEB3.modules;
 
-  static readonly utils = WEB3.utils;
-
-  static readonly web3Version = WEB3.version;
-
-  static modules = WEB3.modules;
-
   private readonly walletKey?: string;
 
   protected web3: WEB3;
@@ -504,10 +498,11 @@ export class Web3 extends NodeUrl {
     ]);
   }
 
-  // eslint-disable-next-line class-methods-use-this
-  sleepParseEvent = (address: string)
-      : Promise<void> => new Promise((res) => {
-    const timeID = setTimeout(res, this.hasHttp ? this.config.parseEventsIntervalMs.http : this.config.parseEventsIntervalMs.wss);
+  sleepParseEvent = (address: string): Promise<void> => new Promise((res) => {
+    const timeID = setTimeout(res, this.hasHttp
+      ? this.config.parseEventsIntervalMs.http
+      : this.config.parseEventsIntervalMs.wss);
+
     this.timeoutIDParseEventLop.set(address, timeID);
   });
 }
