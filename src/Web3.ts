@@ -104,6 +104,7 @@ export class Web3 extends NodeUrl {
 
     this.contracts = new Map();
     this.eventDataContracts = new Map();
+    this.timeoutIDParseEventLop = new Map();
     this.subscribedContracts = {};
 
     this.walletKey = walletKey;
