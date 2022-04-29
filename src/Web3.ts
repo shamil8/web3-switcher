@@ -264,8 +264,6 @@ class Web3 extends NodeUrl {
 
   getContract(Abi: AbiItem[], address: string): Contract {
     if (!this.contracts[address]) {
-      this.subscribedContracts[address] = false;
-
       this.contracts[address] = new this.web3.eth.Contract(Abi, address);
     }
 
@@ -305,37 +303,29 @@ class Web3 extends NodeUrl {
    */
 
   private async subscribeAllEvents(address: string): Promise<void> {
-    try {
-      if (this.hasHttp || this.subscribedContracts[address]) {
-        return;
-      }
+    if (this.hasHttp || this.subscribedContracts[address]) {
+      return;
+    }
 
+    try {
       const fromBlock = await this.getBlockNumber();
 
       this.contracts[address].events.allEvents({ fromBlock, })
-        .on('data', this.eventDataContracts[address])
-        .on('error', (error: unknown) => {
-          console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents Cancelled in Contract ${address}_${this.net}`);
-
-          this.subscribedContracts[address] = false;
-
-          throw error;
-        });
+        .on('data', this.eventDataContracts[address]);
 
       this.subscribedContracts[address] = true;
 
       console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents successfully in Contract ${address}_${this.net}`);
     }
     catch (e) {
-      return await this
-        .checkProviderError(e.message, this.subscribeAllEvents.name, address);
+      this.subscribedContracts[address] = false;
+
+      return await this.checkProviderError(e.message, this.subscribeAllEvents.name, address);
     }
   }
 
   private async parseEventsLoop(params: IParseEventsLoopParams): Promise<void> {
-    const {
-      address, firstContractBlock, events,
-    } = params;
+    const { address, firstContractBlock, events, } = params;
 
     try {
       // eslint-disable-next-line no-constant-condition
@@ -427,6 +417,8 @@ class Web3 extends NodeUrl {
       ...params, data, isWs, net: this.net,
     });
 
+    this.subscribedContracts[params.address] = false;
+
     const hasHttp = this.getUrlProvider().includes(providerProtocol.https);
 
     if (!hasHttp) {
@@ -488,13 +480,14 @@ class Web3 extends NodeUrl {
     ]);
   }
 
-  async sleepParseEventsLoop() : Promise<void> {
+  async sleepParseEventsLoop() : Promise<void> { // TODO:: FIX THIs with clearTimeout (Event loop) @ZAKI!
     const maxInterval = Math.max(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
     const minInterval = Math.min(this.config.parseEventsIntervalMs.http as number, this.config.parseEventsIntervalMs.wss as number);
     const sleepCount = Math.floor(maxInterval / minInterval);
 
     for (let i = 0; i < sleepCount; i += 1) {
       await sleep(minInterval);
+
       if (this.hasHttp) {
         break;
       }
