@@ -48,7 +48,6 @@ export interface IParseEventsCore {
 
 export interface IParseEventsLoopParams extends IParseEventsCore {
   firstContractBlock: number,
-  hasHttp: boolean,
 }
 
 export interface BlockInfo {
@@ -87,3 +86,7 @@ export interface IWeb3Config extends Required<IUserWeb3Config> {
 }
 
 export type TAsyncFunction <A, O> = (...args: A[]) => Promise<O>;
+
+export interface IMap<K, V> extends Map<K, V> {
+  get(key: K): V;
+}

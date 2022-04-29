@@ -10,7 +10,7 @@ import { ParserInfo, } from './models';
 import { minutesToMilliSec, sleep, } from './utils';
 import NodeUrl, { providerProtocol, } from './NodeUrl';
 import {
-  IUserWeb3Config, IWeb3Config, IListenerParams,
+  IUserWeb3Config, IWeb3Config, IListenerParams, IMap,
   IParamsListener, IParseEventsLoopParams, IParseEventsParams,
   jobsCallbackType, TAsyncFunction, BlockInfo, parseCallbackType,
 } from './interfaces';
@@ -62,10 +62,6 @@ const getConfig = ({
   parseEventsIntervalMs,
 });
 
-interface IMap<K, V> extends Map<K, V> {
-  get(key: K): V;
-}
-
 export class Web3 extends NodeUrl {
   config: IWeb3Config;
 
@@ -85,8 +81,6 @@ export class Web3 extends NodeUrl {
 
   protected timeoutIDParseEventLop: IMap<string, NodeJS.Timeout>;
 
-  protected subscribedContracts: {[address: string]: boolean, };
-
   protected abortReconnect: boolean;
 
   protected lastProviderHasHttp: boolean;
@@ -105,7 +99,6 @@ export class Web3 extends NodeUrl {
     this.contracts = new Map();
     this.eventDataContracts = new Map();
     this.timeoutIDParseEventLop = new Map();
-    this.subscribedContracts = {};
 
     this.walletKey = walletKey;
 
@@ -172,12 +165,6 @@ export class Web3 extends NodeUrl {
       for (const [key, value] of this.timeoutIDParseEventLop) {
         clearTimeout(value);
         this.timeoutIDParseEventLop.delete(key);
-      }
-    }
-
-    if (!this.hasHttp) {
-      for (const [address, isSub] of Object.entries(this.subscribedContracts)) {
-        !isSub && await this.subscribeAllEvents(address);
       }
     }
   }
@@ -321,23 +308,16 @@ export class Web3 extends NodeUrl {
    */
 
   private async subscribeAllEvents(address: string): Promise<void> {
-    if (this.hasHttp || this.subscribedContracts[address]) {
-      return;
-    }
-
     try {
       const fromBlock = await this.getBlockNumber();
 
       this.contracts.get(address).events.allEvents({ fromBlock, })
-        .on('data', this.eventDataContracts.get(address));
-
-      this.subscribedContracts[address] = true;
+        .on('data', this.eventDataContracts.get(address))
+        .on('error', (err: unknown) => { throw err; });
 
       console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents successfully in Contract ${address}_${this.net}`);
     }
     catch (e) {
-      this.subscribedContracts[address] = false;
-
       return await this.checkProviderError(e.message, this.subscribeAllEvents.name, address);
     }
   }
@@ -435,16 +415,9 @@ export class Web3 extends NodeUrl {
       ...params, data, isWs, net: this.net,
     }));
 
-    this.subscribedContracts[params.address] = false;
-
-    const hasHttp = this.getUrlProvider().includes(providerProtocol.https);
-
-    if (!hasHttp) {
-      await this.subscribeAllEvents(params.address);
-    }
+    await this.subscribeAllEvents(params.address);
 
     this.parseEventsLoop({
-      hasHttp,
       address: params.address,
       firstContractBlock: params.firstContractBlock,
       events: params.contractEvents,
