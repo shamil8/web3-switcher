@@ -389,7 +389,7 @@ export class Web3 extends NodeUrl {
           for (const item of items) {
             // isWS = false meant doesn't need to send socket event!
             try {
-              await this.eventDataContracts.get(address)(item, provider.includes(providerProtocol.https));
+              await this.eventDataContracts.get(address)(item, this.hasHttp);
             }
             catch (e) {
               console.error(`Error in jobs, contract: ${address} ${this.net} for the event`, item, 'with the Error', e);
