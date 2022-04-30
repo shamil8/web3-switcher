@@ -312,7 +312,9 @@ export class Web3 extends NodeUrl {
       const fromBlock = await this.getBlockNumber();
 
       this.contracts.get(address).events.allEvents({ fromBlock, })
-        .on('data', this.eventDataContracts.get(address))
+        .on('data', (data: object) => {
+          this.eventDataContracts.get(address)(data, !this.hasHttp);
+        })
         .on('error', (err: unknown) => { throw err; });
 
       console.log('\x1b[32m%s\x1b[0m', `subscribeAllEvents successfully in Contract ${address}_${this.net}`);
@@ -411,7 +413,7 @@ export class Web3 extends NodeUrl {
   }
 
   private async subscribe(jobsCallback: jobsCallbackType, params: IListenerParams): Promise<void> {
-    this.eventDataContracts.set(params.address, async (data: any, isWs = !this.hasHttp) => await jobsCallback({
+    this.eventDataContracts.set(params.address, async (data: any, isWs : boolean) => await jobsCallback({
       ...params, data, isWs, net: this.net,
     }));
 
